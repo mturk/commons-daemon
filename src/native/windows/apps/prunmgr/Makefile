@@ -15,24 +15,20 @@
 
 TARGET = GUI
 PROJECT = prunmgr
-!include <..\..\include\Makefile.inc>
 
+SRCDIR = .\..\..
 !IF !DEFINED(PREFIX) || "$(PREFIX)" == ""
 PREFIX = .\..\..\..\..\..\target
 !ENDIF
-!IF !DEFINED(SRCDIR) || "$(SRCDIR)" == ""
-SRCDIR = .\..\..
-!ENDIF
+INSTALLLOC = $(PREFIX)
 
-!IF "$(CPU)" == "X64"
-PREFIX = $(PREFIX)\amd64
-!ENDIF
+# Include common definitions
+!include <..\..\include\Makefile.inc>
 
-LFLAGS = $(LFLAGS) /version:1.0 /DYNAMICBASE /NXCOMPAT
-LIBS = $(LIBS) user32.lib gdi32.lib winspool.lib comdlg32.lib comctl32.lib shlwapi.lib
-INCLUDES = -I$(SRCDIR)\include -I$(SRCDIR)\src $(JAVA_INCLUDES)
+LFLAGS = $(LFLAGS) /VERSION:1.3
+INCLUDES = -I $(SRCDIR)\include -I $(SRCDIR)\src $(JAVA_INCLUDES)
+PDBFLAGS = -Fo$(WORKDIR)\ -Fd$(WORKDIR)\$(PROJECT)
 
-PDBFLAGS = -Fo$(WORKDIR)\ -Fd$(WORKDIR)\$(PROJECT)-src
 OBJECTS = \
 	$(WORKDIR)\cmdline.obj \
 	$(WORKDIR)\console.obj \
@@ -46,21 +42,13 @@ OBJECTS = \
 	$(WORKDIR)\security.obj \
 	$(WORKDIR)\service.obj \
 	$(WORKDIR)\utils.obj \
-	$(WORKDIR)\prunmgr.obj
+	$(WORKDIR)\$(PROJECT).obj \
+	$(WORKDIR)\$(PROJECT).res
 
 BUILDEXE = $(WORKDIR)\$(PROJECT).exe
-BUILDLOC = $(PREFIX)
-!IF "$(CPU)" == "X64"
-BUILDLOC = $(PREFIX)\amd64
-!ENDIF
 BUILDPDB = $(WORKDIR)\$(PROJECT).pdb
-BUILDRES = $(WORKDIR)\$(PROJECT).res
-BUILDMAN = $(BUILDEXE).manifest
 
 all : $(WORKDIR) $(BUILDEXE)
-
-$(BUILDLOC) :
-	@if not exist "$(BUILDLOC)\$(NULL)" mkdir "$(BUILDLOC)"
 
 $(WORKDIR) :
 	@$(MAKEWORKDIR)
@@ -68,19 +56,19 @@ $(WORKDIR) :
 {$(SRCDIR)\src}.c{$(WORKDIR)}.obj:
 	$(CC) $(CFLAGS) $(INCLUDES) $(PDBFLAGS) $<
 
-{$(SRCDIR)\apps\prunmgr}.c{$(WORKDIR)}.obj:
+{$(SRCDIR)\apps\$(PROJECT)}.c{$(WORKDIR)}.obj:
 	$(CC) $(CFLAGS) $(INCLUDES) $(PDBFLAGS) $<
 
-$(BUILDRES): $(SRCDIR)/apps/prunmgr/prunmgr.rc
-	$(RC) $(RCFLAGS) /i "$(SRCDIR)\include" /fo $(BUILDRES) $(SRCDIR)/apps/prunmgr/prunmgr.rc
+{$(SRCDIR)\apps\$(PROJECT)}.rc{$(WORKDIR)}.res:
+	$(RC) $(RCFLAGS) /i $(SRCDIR)\include /fo $@ $<
 
-$(BUILDEXE): $(WORKDIR) $(OBJECTS) $(BUILDRES)
-	$(LINK) $(LFLAGS) $(OBJECTS) $(BUILDRES) $(LIBS) $(LDIRS) /pdb:$(BUILDPDB) /out:$(BUILDEXE)
-	IF EXIST $(BUILDMAN) \
-		mt -nologo -manifest $(BUILDMAN) -outputresource:$(BUILDEXE);1
+$(BUILDEXE): $(OBJECTS)
+	$(LN) $(LFLAGS) $(OBJECTS) $(LIBS) /pdb:$(BUILDPDB) /out:$(BUILDEXE)
 
 clean:
 	@$(CLEANTARGET)
 
-install: $(BUILDLOC) $(WORKDIR) $(BUILDEXE)
-	@xcopy "$(WORKDIR)\*.exe" "$(BUILDLOC)" /Y /Q
+install: all
+	@$(MAKEINSTALL)
+	@xcopy /I /Y /Q "$(WORKDIR)\*.exe" "$(INSTALLLOC)"
+	@xcopy /I /Y /Q "$(WORKDIR)\*.pdb" "$(INSTALLLOC)"

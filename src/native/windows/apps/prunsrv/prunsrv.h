@@ -14,13 +14,6 @@
  * limitations under the License.
  */
 
-/* ====================================================================
- * jar2exe -- convert .jar file to WIN32 executable.
- * Contributed by Mladen Turk <mturk@apache.org>
- * 05 Aug 2003
- * ====================================================================
- */
-
 #ifndef _PRUNSRV_H
 #define _PRUNSRV_H
 

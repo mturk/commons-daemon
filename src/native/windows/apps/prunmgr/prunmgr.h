@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/* ====================================================================
- * Contributed by Mladen Turk <mturk@apache.org>
- * 05 Aug 2003
- * ====================================================================
- */
-
 #ifndef _PRUNMGR_H
 #define _PRUNMGR_H
 
