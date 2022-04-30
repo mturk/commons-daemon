@@ -721,6 +721,44 @@ static BOOL printConfig(LPAPXCMDLINE lpCmdline)
     return TRUE;
 }
 
+/* Common error reporting */
+static void logGrantFileAccessFail(LPCWSTR szUser, LPCWSTR szPath, DWORD dwError)
+{
+    int     len = 0;
+    CHAR    errmsg[SIZ_HUGLEN];
+    WCHAR sPath[SIZ_PATHLEN];
+
+    /* 
+     * Both user and path may be null indicating that the default should be
+     * used. Strictly, the default for path isn't fixed so it needs to be
+     * calculated. The default for user is a constant so use that directly.
+     */
+    if (!szPath) {
+        if (GetSystemDirectoryW(sPath, MAX_PATH) == 0) {
+            lstrlcpyW(sPath, MAX_PATH, L"%windir%\\system32");
+        }
+        lstrlcatW(sPath, MAX_PATH, LOG_PATH_DEFAULT);
+    }
+    else {
+        lstrlcpyW(sPath, MAX_PATH, szPath);
+    }
+
+    errmsg[0] = '\0';
+    if (dwError != ERROR_SUCCESS) {
+        len = apxGetMessage(dwError, errmsg, SIZ_DESLEN);
+        errmsg[len] = '\0';
+        if (len > 0) {
+            if (errmsg[len - 1] == '\n')
+                errmsg[--len] = '\0';
+            if (len > 0 && errmsg[len - 1] == '\r')
+                errmsg[--len] = '\0';
+        }
+    }
+
+    apxLogWrite(APXLOG_MARK_WARN "Failed to grant service user '%S' write permissions to log path '%S' due to error '%d: %s'",
+                (szUser ? szUser : DEFAULT_SERVICE_USER), sPath, dwError, errmsg);
+}
+
 /* Operations */
 static BOOL docmdInstallService(LPAPXCMDLINE lpCmdline)
 {
@@ -833,10 +871,7 @@ static BOOL docmdInstallService(LPAPXCMDLINE lpCmdline)
         apxServiceSetNames(hService, NULL, NULL, sd, su, sp);
         dwResult = apxSecurityGrantFileAccessToUser(SO_LOGPATH, su);
         if (dwResult) {
-            apxLogWrite(APXLOG_MARK_WARN "Failed to grant service user '%S' write permissions to log path '%S' due to error '%d'",
-                        su ? su : DEFAULT_SERVICE_USER,
-                        SO_LOGPATH ? SO_LOGPATH : L"<default>",
-                        dwResult);
+            logGrantFileAccessFail(su, SO_LOGPATH, dwResult);
         }
     }
     apxCloseHandle(hService);
@@ -1027,10 +1062,7 @@ static BOOL docmdUpdateService(LPAPXCMDLINE lpCmdline)
                                        sp));
         dwResult = apxSecurityGrantFileAccessToUser(SO_LOGPATH, su);
         if (dwResult) {
-            apxLogWrite(APXLOG_MARK_WARN "Failed to grant service user '%S' write permissions to log path '%S' due to error '%d'",
-                        su ? su : DEFAULT_SERVICE_USER,
-                        SO_LOGPATH ? SO_LOGPATH : L"<default>",
-                        dwResult);
+            logGrantFileAccessFail(su, SO_LOGPATH, dwResult);
         }
         /* Update the --Startup mode */
         if (ST_STARTUP & APXCMDOPT_FOUND) {
