@@ -97,7 +97,7 @@ static LPCWSTR _altcmds[] = {
     L"update",      /*  5 Update Service parameters */
     L"install",     /*  6 Install Service */
     L"delete",      /*  7 Delete Service */
-	L"print",       /*  8 Print Service Configuration */
+    L"print",       /*  8 Print Service Configuration */
     L"help",        /*  9 Help */
     L"version",     /* 10 Version */
     NULL
@@ -297,14 +297,6 @@ static BOOL redirectStdStreams(APX_STDWRAP *lpWrapper, LPAPXCMDLINE lpCmdline)
     BOOL aErr = FALSE;
     BOOL aOut = FALSE;
 
-    /* Allocate console if we have none
-     */
-    if (GetConsoleWindow() == NULL) {
-        HWND hc;
-        AllocConsole();
-        if ((hc = GetConsoleWindow()) != NULL)
-            ShowWindow(hc, SW_HIDE);
-    }
     /* redirect to file or console */
     if (lpWrapper->szStdOutFilename) {
         if (lstrcmpiW(lpWrapper->szStdOutFilename, PRSRV_AUTO) == 0) {
@@ -678,39 +670,39 @@ static BOOL printConfig(LPAPXCMDLINE lpCmdline)
     int i = 0;
 
     if (!loadConfiguration(lpCmdline)) {
-		return FALSE;
-	}
+        return FALSE;
+    }
 
     fwprintf(stderr, L"%s.exe update ",lpCmdline->szExecutable);
     while (_options[i].szName) {
-		if (_options[i].dwType & APXCMDOPT_INT) {
-			fwprintf(stderr, L"--%s %d ", _options[i].szName, _options[i].dwValue);
-		} else if (_options[i].dwType & APXCMDOPT_MSZ) {
-			if (_options[i].szValue) {
-				BOOL first = TRUE;
-				LPCWSTR p = _options[i].szValue;
-    	        fwprintf(stderr, L"--%s \"", _options[i].szName);
+        if (_options[i].dwType & APXCMDOPT_INT) {
+            fwprintf(stderr, L"--%s %d ", _options[i].szName, _options[i].dwValue);
+        } else if (_options[i].dwType & APXCMDOPT_MSZ) {
+            if (_options[i].szValue) {
+                BOOL first = TRUE;
+                LPCWSTR p = _options[i].szValue;
+                fwprintf(stderr, L"--%s \"", _options[i].szName);
 
-    	        while (*p) {
-    	        	if (first) {
-    	        		first = FALSE;
-    	        	} else {
-    	        		fwprintf(stderr, L"#");
-    	        	}
-    	        	// Skip to terminating NULL for this value
-    	        	while (p[0]) {
-    	        		if (p[0] == L'#') {
-    	        			fwprintf(stderr, L"'%c'", p[0]);
-    	        		} else {
-    	        			fwprintf(stderr, L"%c", p[0]);
-    	        		}
-    	        		++p;
-    	        	}
-    	        	// Move to start of next value
-    	        	++p;
-    	        }
-    	        fwprintf(stderr, L"\" ");
-			}
+                while (*p) {
+                    if (first) {
+                        first = FALSE;
+                    } else {
+                        fwprintf(stderr, L"#");
+                    }
+                    // Skip to terminating NULL for this value
+                    while (p[0]) {
+                        if (p[0] == L'#') {
+                            fwprintf(stderr, L"'%c'", p[0]);
+                        } else {
+                            fwprintf(stderr, L"%c", p[0]);
+                        }
+                        ++p;
+                    }
+                    // Move to start of next value
+                    ++p;
+                }
+                fwprintf(stderr, L"\" ");
+            }
         } else if (_options[i].szValue) {
             fwprintf(stderr, L"--%s \"%s\" ", _options[i].szName, _options[i].szValue);
         }
@@ -739,12 +731,12 @@ static BOOL docmdInstallService(LPAPXCMDLINE lpCmdline)
     }
     /* Check the startup mode */
     if (ST_STARTUP & APXCMDOPT_FOUND) {
-    	if (lstrcmpiW(SO_STARTUP, PRSRV_AUTO) == 0) {
-    		dwStart = SERVICE_AUTO_START;
-    	} else if (lstrcmpiW(SO_STARTUP, PRSRV_DELAYED) == 0) {
-    		dwStart = SERVICE_AUTO_START;
-    		bDelayedStart = TRUE;
-    	}
+        if (lstrcmpiW(SO_STARTUP, PRSRV_AUTO) == 0) {
+            dwStart = SERVICE_AUTO_START;
+        } else if (lstrcmpiW(SO_STARTUP, PRSRV_DELAYED) == 0) {
+            dwStart = SERVICE_AUTO_START;
+            bDelayedStart = TRUE;
+        }
     }
     /* Check the service type */
     if ((ST_TYPE & APXCMDOPT_FOUND) &&
@@ -799,7 +791,7 @@ static BOOL docmdInstallService(LPAPXCMDLINE lpCmdline)
                           dwStart);
     /* Configure as delayed start */
     if (rv & bDelayedStart) {
-    	if (!apxServiceSetOptions(hService,
+        if (!apxServiceSetOptions(hService,
                                   dwType,
                                   dwStart,
                                   bDelayedStart,
@@ -1421,7 +1413,7 @@ static DWORD serviceStart()
          * before Java is started
          */
         if (IS_VALID_STRING(SO_JVMOPTIONS)) {
-        	setInprocEnvironmentOptions(SO_JVMOPTIONS);
+            setInprocEnvironmentOptions(SO_JVMOPTIONS);
         }
         /* Create the JVM global worker */
         gWorker = apxCreateJava(gPool, _jni_jvmpath, SO_JAVAHOME);
@@ -1562,7 +1554,7 @@ cleanup:
 
 /* Service control handler.
  */
-void WINAPI service_ctrl_handler(DWORD dwCtrlCode)
+DWORD WINAPI service_ctrl_handler(DWORD dwCtrlCode, DWORD _xe, LPVOID _xd, LPVOID _xc)
 {
     DWORD  threadId;
     HANDLE stopThread;
@@ -1583,49 +1575,64 @@ void WINAPI service_ctrl_handler(DWORD dwCtrlCode)
                                       (LPVOID)SERVICE_CONTROL_STOP,
                                       0, &threadId);
             CloseHandle(stopThread);
-            return;
+        break;
         case SERVICE_CONTROL_INTERROGATE:
             reportServiceStatusE(APXLOG_LEVEL_TRACE,
                                 _service_status.dwCurrentState,
                                 _service_status.dwWin32ExitCode,
                                 _service_status.dwWaitHint,
                                 0);
-            return;
+        break;
         default:
-            break;
+            apxLogWrite(APXLOG_MARK_ERROR "Unknown Service ctrl: %lu", dwCtrlCode);
+            return ERROR_CALL_NOT_IMPLEMENTED;
+        break;
    }
+   return 0;
 }
 
 /* Console control handler.
  */
 BOOL WINAPI console_handler(DWORD dwCtrlType)
 {
+    if (_service_mode)
+        return TRUE;
     switch (dwCtrlType) {
         case CTRL_BREAK_EVENT:
             apxLogWrite(APXLOG_MARK_INFO "Console CTRL+BREAK event signaled.");
-            return FALSE;
+        break;
         case CTRL_C_EVENT:
             apxLogWrite(APXLOG_MARK_INFO "Console CTRL+C event signaled.");
-            serviceStop((LPVOID)SERVICE_CONTROL_STOP);
-            return TRUE;
+        break;
         case CTRL_CLOSE_EVENT:
-            apxLogWrite(APXLOG_MARK_INFO "Console CTRL+CLOSE event signaled.");
-            serviceStop((LPVOID)SERVICE_CONTROL_STOP);
-            return TRUE;
+            apxLogWrite(APXLOG_MARK_INFO "Console CLOSE event signaled.");
+        break;
         case CTRL_SHUTDOWN_EVENT:
             apxLogWrite(APXLOG_MARK_INFO "Console SHUTDOWN event signaled.");
-            serviceStop((LPVOID)SERVICE_CONTROL_SHUTDOWN);
-            return TRUE;
+        break;
         case CTRL_LOGOFF_EVENT:
             apxLogWrite(APXLOG_MARK_INFO "Console LOGOFF event signaled.");
-            if (!_service_mode) {
-                serviceStop((LPVOID)SERVICE_CONTROL_STOP);
-            }
-            return TRUE;
         break;
-
+        default:
+            apxLogWrite(APXLOG_MARK_ERROR "Unknown Console ctrl: %lu", dwCtrlType);
+            return FALSE;
+        break;
+    }
+    switch (dwCtrlType) {
+        case CTRL_BREAK_EVENT:
+        case CTRL_C_EVENT:
+        case CTRL_CLOSE_EVENT:
+        case CTRL_SHUTDOWN_EVENT:
+            serviceStop((LPVOID)dwCtrlType);
+        break;
    }
-   return FALSE;
+   return TRUE;
+}
+
+static void __cdecl console_cleanup(void)
+{
+    SetConsoleCtrlHandler(console_handler, FALSE);
+    FreeConsole();
 }
 
 /* Main service execution loop. */
@@ -1775,20 +1782,13 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
     }
     if (_service_mode) {
         /* Register Service Control handler */
-        _service_status_handle = RegisterServiceCtrlHandlerW(_service_name,
-                                                              service_ctrl_handler);
+        _service_status_handle = RegisterServiceCtrlHandlerExW(_service_name,
+                                                                service_ctrl_handler,
+                                                                NULL);
         if (IS_INVALID_HANDLE(_service_status_handle)) {
             apxLogWrite(APXLOG_MARK_ERROR "Failed to register Service Control for '%S'.",
                         _service_name);
             goto cleanup;
-        }
-        /* Allocate console so that events gets processed */
-        if (!AttachConsole(ATTACH_PARENT_PROCESS) &&
-             GetLastError() == ERROR_INVALID_HANDLE) {
-            HWND hc;
-            AllocConsole();
-            if ((hc = GetConsoleWindow()) != NULL)
-                ShowWindow(hc, SW_HIDE);
         }
     }
     reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
@@ -1900,7 +1900,7 @@ static const char *gSzProc[] = {
     NULL
 };
 
-void __cdecl main(int argc, char **argv)
+int __cdecl main(int argc, char **argv)
 {
     UINT rv = 0;
 
@@ -1917,7 +1917,7 @@ void __cdecl main(int argc, char **argv)
             }
             Sleep(ss * 1000);
             ExitProcess(0);
-            return;
+            return 0;
         }
         else if (strcmp(argv[1], "pause") == 0) {
             /* Handy sleep routine defaulting to 1 minute */
@@ -1930,7 +1930,7 @@ void __cdecl main(int argc, char **argv)
         if (ss) {
             Sleep(ss * 1000);
             ExitProcess(0);
-            return;
+            return 0;
         }
     }
     apxHandleManagerInitialize();
@@ -1955,11 +1955,35 @@ void __cdecl main(int argc, char **argv)
 
     /* Only configure logging to a file when running as a service */
     if (lpCmdline->dwCmdIndex == 2) {
+        HANDLE h;
+
         apxLogOpen(gPool, SO_LOGPATH, SO_LOGPREFIX, SO_LOGROTATE);
         apxLogLevelSetW(NULL, SO_LOGLEVEL);
         apxLogWrite(APXLOG_MARK_DEBUG "Apache Commons Daemon procrun log initialized.");
         if (SO_LOGROTATE) {
             apxLogWrite(APXLOG_MARK_DEBUG "Log will rotate each %d seconds.", SO_LOGROTATE);
+        }
+        h = GetStdHandle(STD_INPUT_HANDLE);
+        if (IS_INVALID_HANDLE(h)) {
+           if (AllocConsole()) {
+                /**
+                 * AllocConsole should create new set of
+                 * standard i/o handles
+                 */
+                atexit(console_cleanup);
+                h = GetStdHandle(STD_INPUT_HANDLE);
+                if (IS_INVALID_HANDLE(h)) {
+                    rv = GetLastError();
+                    apxLogWrite(APXLOG_MARK_ERROR "Missing STD_INPUT_HANDLE");
+                    return rv;
+                }
+                apxLogWrite(APXLOG_MARK_DEBUG "Allocated new Console.");
+            }
+            else {
+                rv = GetLastError();
+                apxLogWrite(APXLOG_MARK_ERROR "Cannot AllocConsole");
+                return rv;
+            }
         }
     } else {
         /* Not running as a service, just set the log level */
@@ -2057,5 +2081,5 @@ cleanup:
     _flushall();
     apxLogClose(NULL);
     apxHandleManagerDestroy();
-    ExitProcess(rv);
+    return rv;
 }
