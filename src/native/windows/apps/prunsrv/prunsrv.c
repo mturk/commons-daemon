@@ -51,6 +51,7 @@
 #define PRG_BITS      32
 #endif
 
+#define PR_START_HINT     5000
 #define PR_STOP_HINT      20000
 #define PR_STOP_CHECK     10000
 #define PR_STOP_WAIT      30000
@@ -261,8 +262,9 @@ static HANDLE gSignalThread  = NULL;
 static HANDLE gPidfileHandle = NULL;
 static LPWSTR gPidfileName   = NULL;
 static BOOL   gSignalValid   = TRUE;
-static APXJAVA_THREADARGS gRargs;
-static APXJAVA_THREADARGS gSargs;
+static APXJAVA_THREADARGS  gRargs;
+static APXJAVA_THREADARGS  gSargs;
+static SECURITY_ATTRIBUTES gSazero;
 
 DWORD WINAPI eventThread(LPVOID lpParam)
 {
@@ -1195,7 +1197,7 @@ static DWORD WINAPI serviceStop(LPVOID lpParameter)
         gSargs.szLibraryPath    = SO_LIBPATH;
 
         /* Create shutdown event */
-        gShutdownEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        gShutdownEvent = CreateEventW(&gSazero, TRUE, FALSE, NULL);
         if (!apxJavaStart(&gSargs)) {
             apxLogWrite(APXLOG_MARK_ERROR "Failed starting Java.");
             rv = 3;
@@ -1244,7 +1246,7 @@ static DWORD WINAPI serviceStop(LPVOID lpParameter)
          * which will, in all probability, trigger a crash. Wait for the stop
          * process to complete before cleaning up.
          */
-        gShutdownEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        gShutdownEvent = CreateEventW(&gSazero, TRUE, FALSE, NULL);
         if (!apxProcessSetExecutableW(hWorker, SO_STOPIMAGE)) {
             apxLogWrite(APXLOG_MARK_ERROR "Failed setting process executable '%S'.",
                         SO_STOPIMAGE);
@@ -1538,12 +1540,7 @@ DWORD WINAPI service_ctrl_handler(DWORD dwCtrlCode, DWORD _xe, LPVOID _xd, LPVOI
         case SERVICE_CONTROL_SHUTDOWN:
             apxLogWrite(APXLOG_MARK_INFO "Service SHUTDOWN signalled.");
         case SERVICE_CONTROL_STOP:
-            if (SO_STOPTIMEOUT > 0) {
-                reportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, SO_STOPTIMEOUT * 1000);
-            }
-            else {
-                reportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, 3 * 1000);
-            }
+            reportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, PR_STOP_HINT);
             /* Stop the service asynchronously */
             stopThread = CreateThread(NULL, 0,
                                       serviceStop,
@@ -1593,6 +1590,7 @@ BOOL WINAPI console_handler(DWORD dwCtrlType)
         case CTRL_C_EVENT:
         case CTRL_CLOSE_EVENT:
         case CTRL_SHUTDOWN_EVENT:
+            reportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, PR_STOP_HINT);
             serviceStop((LPVOID)dwCtrlType);
         break;
    }
@@ -1640,6 +1638,19 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
             gSignalThread = CreateThread(NULL, 0, eventThread, NULL, 0, &tid);
         }
     }
+    if (_service_mode) {
+        /* Register Service Control handler */
+        _service_status_handle = RegisterServiceCtrlHandlerExW(_service_name,
+                                                                service_ctrl_handler,
+                                                                NULL);
+        if (IS_INVALID_HANDLE(_service_status_handle)) {
+            apxLogWrite(APXLOG_MARK_ERROR "Failed to register Service Control for '%S'.",
+                        _service_name);
+            goto cleanup;
+        }
+    }
+    reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, PR_START_HINT);
+
     /* Check the StartMode */
     if (IS_VALID_STRING(SO_STARTMODE)) {
         if (!lstrcmpiW(SO_STARTMODE, PRSRV_JVM)) {
@@ -1688,6 +1699,7 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
             SO_STARTIMAGE = jx;
         }
     }
+    reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, PR_START_HINT);
     /* Check the StopMode */
     if (IS_VALID_STRING(SO_STOPMODE)) {
         if (!lstrcmpiW(SO_STOPMODE, PRSRV_JVM)) {
@@ -1735,6 +1747,7 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
             SO_STOPIMAGE = jx;
         }
     }
+    reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, PR_START_HINT);
     /* Find the classpath */
     if (_jni_shutdown || _jni_startup) {
         if (IS_VALID_STRING(SO_JVM)) {
@@ -1750,19 +1763,9 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
         _jni_jvmoptions    = MzWideToANSI(SO_JVMOPTIONS);
         _jni_jvmoptions9   = MzWideToANSI(SO_JVMOPTIONS9);
     }
-    if (_service_mode) {
-        /* Register Service Control handler */
-        _service_status_handle = RegisterServiceCtrlHandlerExW(_service_name,
-                                                                service_ctrl_handler,
-                                                                NULL);
-        if (IS_INVALID_HANDLE(_service_status_handle)) {
-            apxLogWrite(APXLOG_MARK_ERROR "Failed to register Service Control for '%S'.",
-                        _service_name);
-            goto cleanup;
-        }
-    }
-    reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, 3000);
-    if ((rc = serviceStart()) == 0) {
+    reportServiceStatus(SERVICE_START_PENDING, NO_ERROR, PR_START_HINT);
+    rc = serviceStart();
+    if (rc == 0) {
         /* Service is started */
         reportServiceStatus(SERVICE_RUNNING, NO_ERROR, 0);
         apxLogWrite(APXLOG_MARK_DEBUG "Waiting for worker to finish...");
@@ -1962,6 +1965,9 @@ int __cdecl main(int argc, char **argv)
     apxLogWrite(APXLOG_MARK_INFO "Apache Commons Daemon procrun (%s %d-bit) started.",
                 PRG_VERSION, PRG_BITS);
 
+    AplZeroMemory(&gSazero, sizeof(SECURITY_ATTRIBUTES));
+    gSazero.nLength = sizeof(SECURITY_ATTRIBUTES);
+
     AplZeroMemory(&gStdwrap, sizeof(APX_STDWRAP));
     gStartPath = lpCmdline->szExePath;
     gStdwrap.szLogPath = SO_LOGPATH;
@@ -1971,18 +1977,7 @@ int __cdecl main(int argc, char **argv)
         gStdwrap.szStdErrFilename = SO_STDERROR;
     }
     redirectStdStreams(&gStdwrap, lpCmdline);
-    if (lpCmdline->dwCmdIndex == 2) {
-        SYSTEMTIME t;
-        GetLocalTime(&t);
-        fprintf(stdout, "\n%d-%02d-%02d %02d:%02d:%02d "
-                        "Apache Commons Daemon procrun stdout initialized.\n",
-                        t.wYear, t.wMonth, t.wDay,
-                        t.wHour, t.wMinute, t.wSecond);
-        fprintf(stderr, "\n%d-%02d-%02d %02d:%02d:%02d "
-                        "Apache Commons Daemon procrun stderr initialized.\n",
-                        t.wYear, t.wMonth, t.wDay,
-                        t.wHour, t.wMinute, t.wSecond);
-    }
+
     switch (lpCmdline->dwCmdIndex) {
         case 1: /* Run Service as console application */
             if (!docmdDebugService(lpCmdline))
@@ -2044,10 +2039,6 @@ cleanup:
     }
     else
         apxLogWrite(APXLOG_MARK_INFO "Apache Commons Daemon procrun finished.");
-    if (lpCmdline)
-        apxCmdlineFree(lpCmdline);
-    _service_status_handle = NULL;
-    _service_mode = FALSE;
     _flushall();
     apxLogClose(NULL);
     apxHandleManagerDestroy();
