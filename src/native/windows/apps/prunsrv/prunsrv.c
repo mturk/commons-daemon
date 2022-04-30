@@ -261,7 +261,6 @@ static HANDLE gSignalEvent   = NULL;
 static HANDLE gSignalThread  = NULL;
 static HANDLE gPidfileHandle = NULL;
 static LPWSTR gPidfileName   = NULL;
-static BOOL   gSignalValid   = TRUE;
 static APXJAVA_THREADARGS  gRargs;
 static APXJAVA_THREADARGS  gSargs;
 static SECURITY_ATTRIBUTES gSazero;
@@ -281,7 +280,7 @@ DWORD WINAPI eventThread(LPVOID lpParam)
             }
             continue;
         }
-        if (dw == WAIT_OBJECT_0 && gSignalValid) {
+        if (dw == WAIT_OBJECT_0) {
             if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, 0)) {
                 /* Invoke Thread dump */
                 if (gWorker && _jni_startup)
@@ -1303,7 +1302,6 @@ cleanup:
     if (!IS_INVALID_HANDLE(hWorker))
         apxCloseHandle(hWorker);
     if (gSignalEvent) {
-        gSignalValid = FALSE;
         SetEvent(gSignalEvent);
         WaitForSingleObject(gSignalThread, 1000);
         CloseHandle(gSignalEvent);
