@@ -1144,33 +1144,6 @@ BOOL child_callback(APXHANDLE hObject, UINT uMsg,
     UNREFERENCED_PARAMETER(hObject);
 }
 
-static int onExitStop(void)
-{
-    if (_service_mode) {
-        apxLogWrite(APXLOG_MARK_DEBUG "Stop exit hook called...");
-        reportServiceStatusStopped(0);
-    }
-    return 0;
-}
-
-static int onExitStart(void)
-{
-    if (_service_mode) {
-        apxLogWrite(APXLOG_MARK_DEBUG "Start exit hook called...");
-        apxLogWrite(APXLOG_MARK_DEBUG "JVM exit code: %d.", apxGetVmExitCode());
-        /* Reporting the service as stopped even with a non-zero exit code
-         * will not cause recovery actions to be initiated, so don't report at all.
-         * "A service is considered failed when it terminates without reporting a
-         * status of SERVICE_STOPPED to the service controller"
-         * http://msdn.microsoft.com/en-us/library/ms685939(VS.85).aspx
-         */
-        if (apxGetVmExitCode() == 0) {
-            reportServiceStatusStopped(0);
-        }
-    }
-    return 0;
-}
-
 /* Executed when the service receives stop event. */
 static DWORD WINAPI serviceStop(LPVOID lpParameter)
 {
@@ -1214,9 +1187,7 @@ static DWORD WINAPI serviceStop(LPVOID lpParameter)
         gSargs.szStdErrFilename = NULL;
         gSargs.szStdOutFilename = NULL;
         gSargs.szLibraryPath    = SO_LIBPATH;
-        /* Register onexit hook
-         */
-        _onexit(onExitStop);
+
         /* Create shutdown event */
         gShutdownEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         if (!apxJavaStart(&gSargs)) {
@@ -1435,9 +1406,7 @@ static DWORD serviceStart()
         gRargs.szStdErrFilename = gStdwrap.szStdErrFilename;
         gRargs.szStdOutFilename = gStdwrap.szStdOutFilename;
         gRargs.szLibraryPath    = SO_LIBPATH;
-        /* Register onexit hook
-         */
-        _onexit(onExitStart);
+
         if (!apxJavaStart(&gRargs)) {
             rv = 4;
             apxLogWrite(APXLOG_MARK_ERROR "Failed to start Java");
