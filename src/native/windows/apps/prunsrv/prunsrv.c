@@ -51,6 +51,11 @@
 #define PRG_BITS      32
 #endif
 
+#define PR_STOP_HINT      20000
+#define PR_STOP_CHECK     10000
+#define PR_STOP_WAIT      30000
+#define PR_STOP_STEP      5000
+
 typedef struct APX_STDWRAP {
     LPCWSTR szLogPath;
     LPCWSTR szStdOutFilename;
@@ -219,6 +224,8 @@ static APXCMDLINEOPT _options[] = {
 
 static SERVICE_STATUS        _service_status;
 static SERVICE_STATUS_HANDLE _service_status_handle = NULL;
+static volatile LONG         _service_state = SERVICE_START_PENDING;
+
 /* Set if launched by SCM   */
 static BOOL                  _service_mode = FALSE;
 /* JVM used as worker       */
@@ -229,6 +236,7 @@ static BOOL                  _jni_shutdown = FALSE;
 static BOOL                  _java_startup  = FALSE;
 /* Java used for shutdown    */
 static BOOL                  _java_shutdown = FALSE;
+
 /* Global variables and objects */
 static APXHANDLE    gPool;
 static APXHANDLE    gWorker;
@@ -1071,59 +1079,57 @@ static BOOL docmdUpdateService(LPAPXCMDLINE lpCmdline)
  * SERVICE_STOP_PENDING      0x00000003 The service is stopping.
  * SERVICE_STOPPED           0x00000001 The service is not running.
  */
-static BOOL reportServiceStatusE(DWORD dwLevel,
-                                 DWORD dwCurrentState,
-                                 DWORD dwWin32ExitCode,
-                                 DWORD dwWaitHint,
-                                 DWORD dwServiceSpecificExitCode)
-{
-   static DWORD dwCheckPoint = 1;
-   BOOL fResult = TRUE;
-
-   apxLogWrite(NULL, dwLevel, TRUE, __FILE__, __LINE__, __func__,
-       "reportServiceStatusE: dwCurrentState = %d (%s), dwWin32ExitCode = %d, dwWaitHint = %d milliseconds, dwServiceSpecificExitCode = %d.",
-       dwCurrentState, apxServiceGetStateName(dwCurrentState), dwWin32ExitCode, dwWaitHint, dwServiceSpecificExitCode);
-
-   if (_service_mode && _service_status_handle) {
-       if (dwCurrentState == SERVICE_RUNNING)
-            _service_status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
-        else
-            _service_status.dwControlsAccepted = 0;
-
-       _service_status.dwCurrentState  = dwCurrentState;
-       _service_status.dwWin32ExitCode = dwWin32ExitCode;
-       _service_status.dwWaitHint      = dwWaitHint;
-       _service_status.dwServiceSpecificExitCode = dwServiceSpecificExitCode;
-
-       if ((dwCurrentState == SERVICE_RUNNING) ||
-           (dwCurrentState == SERVICE_STOPPED))
-           _service_status.dwCheckPoint = 0;
-       else
-           _service_status.dwCheckPoint = dwCheckPoint++;
-       fResult = SetServiceStatus(_service_status_handle, &_service_status);
-       if (!fResult) {
-           /* TODO: Deal with error */
-           apxLogWrite(APXLOG_MARK_ERROR "Failed to set service status.");
-       }
-   }
-   return fResult;
-}
-
-/* Report the service status to the SCM.
- */
 static BOOL reportServiceStatus(DWORD dwCurrentState,
-                                DWORD dwWin32ExitCode,
+                                DWORD dwServiceSpecificExitCode,
                                 DWORD dwWaitHint)
 {
-    // exit code 0
-    return reportServiceStatusE(APXLOG_LEVEL_DEBUG, dwCurrentState, dwWin32ExitCode, dwWaitHint, 0);
+    static DWORD dwCheckPoint = 1;
+
+    if (dwCurrentState == 0 && dwWaitHint == 0) {
+        _service_status.dwServiceSpecificExitCode = dwServiceSpecificExitCode;
+        return TRUE;
+    }
+    if (InterlockedExchange(&_service_state, SERVICE_STOPPED) == SERVICE_STOPPED)
+        return TRUE;
+
+    _service_status.dwControlsAccepted = 0;
+    _service_status.dwCheckPoint       = 0;
+    _service_status.dwWaitHint         = 0;
+
+    if (dwCurrentState == SERVICE_RUNNING) {
+        _service_status.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+        dwCheckPoint = 1;
+    }
+    else if (dwCurrentState == SERVICE_STOPPED) {
+        if (dwServiceSpecificExitCode != 0)
+            _service_status.dwServiceSpecificExitCode = dwServiceSpecificExitCode;
+        if (_service_status.dwServiceSpecificExitCode == 0 &&
+            _service_status.dwCurrentState != SERVICE_STOP_PENDING)
+            _service_status.dwServiceSpecificExitCode = ERROR_PROCESS_ABORTED;
+        if (_service_status.dwServiceSpecificExitCode != 0)
+            _service_status.dwWin32ExitCode = ERROR_SERVICE_SPECIFIC_ERROR;
+    }
+    else {
+        _service_status.dwCheckPoint = dwCheckPoint++;
+        _service_status.dwWaitHint   = dwWaitHint;
+    }
+    _service_status.dwCurrentState = dwCurrentState;
+    if (!_service_mode ||
+        SetServiceStatus(_service_status_handle, &_service_status)) {
+        InterlockedExchange(&_service_state, dwCurrentState);
+        return TRUE;
+    }
+    else {
+        apxLogWrite(APXLOG_MARK_ERROR "Failed to set service status.");
+        return FALSE;
+   }
 }
 
 /* Report SERVICE_STOPPED to the SCM.
  */
-static BOOL reportServiceStatusStopped(DWORD exitCode)
+static BOOL reportServiceStopped(DWORD exitCode)
 {
-    return reportServiceStatusE(APXLOG_LEVEL_DEBUG, SERVICE_STOPPED, exitCode ? ERROR_SERVICE_SPECIFIC_ERROR : NO_ERROR, 0, exitCode);
+    return reportServiceStatus(SERVICE_STOPPED, exitCode, 0);
 }
 
 BOOL child_callback(APXHANDLE hObject, UINT uMsg,
@@ -1546,11 +1552,6 @@ DWORD WINAPI service_ctrl_handler(DWORD dwCtrlCode, DWORD _xe, LPVOID _xd, LPVOI
             CloseHandle(stopThread);
         break;
         case SERVICE_CONTROL_INTERROGATE:
-            reportServiceStatusE(APXLOG_LEVEL_TRACE,
-                                _service_status.dwCurrentState,
-                                _service_status.dwWin32ExitCode,
-                                _service_status.dwWaitHint,
-                                0);
         break;
         default:
             apxLogWrite(APXLOG_MARK_ERROR "Unknown Service ctrl: %lu", dwCtrlCode);
@@ -1801,12 +1802,12 @@ void WINAPI serviceMain(DWORD argc, LPTSTR *argv)
         reportServiceStatus(SERVICE_STOP_PENDING, NO_ERROR, 0);
     }
     apxLogWrite(APXLOG_MARK_DEBUG "JVM destroyed.");
-    reportServiceStatusStopped(apxGetVmExitCode());
+    reportServiceStopped(apxGetVmExitCode());
 
     return;
 cleanup:
     /* Cleanup */
-    reportServiceStatusStopped(rc);
+    reportServiceStopped(rc);
     gExitval = rc;
     return;
     UNREFERENCED_PARAMETER(argc);
