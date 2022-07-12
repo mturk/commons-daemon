@@ -22,6 +22,7 @@
 #define CHILD_MAINTREAD_FINISHED    0x0004
 #define PROC_INITIALIZED            0x0008
 #define CHILD_TERMINATE_CODE        19640323 /* Could be any value like my birthday ;-)*/
+#define PR_STOP_HINT                20000
 
 DYNLOAD_TYPE_DECLARE(CreateRemoteThread,
                      __stdcall, HANDLE)(HANDLE, LPSECURITY_ATTRIBUTES,
@@ -381,7 +382,7 @@ static BOOL __apxProcessCallback(APXHANDLE hObject, UINT uMsg,
             if (lpProc->dwChildStatus & CHILD_RUNNING) {
                 __apxProcessClose(hObject);
                 /* Wait for all worker threads to exit */
-                WaitForMultipleObjects(3, lpProc->hWorkerThreads, TRUE, INFINITE);
+                WaitForMultipleObjects(3, lpProc->hWorkerThreads, TRUE, PR_STOP_HINT);
             }
             SAFE_CLOSE_HANDLE(lpProc->stProcInfo.hProcess);
 

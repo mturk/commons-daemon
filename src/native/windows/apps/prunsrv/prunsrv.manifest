@@ -31,7 +31,7 @@
   </compatibility>
 
   <assemblyIdentity type="win32"
-                    version="1.3.1.1"
+                    version="1.3.1.2"
                     processorArchitecture="amd64"
                     name="Apache.Procrun.Prunsrv" />
   <description>Apache Commons Daemon Service Runner</description>
